@@ -64,62 +64,67 @@ objects:
         volumes:
         - emptyDir: {}
           name: tmpdir
-        - emptyDir: {}
-          name: quickstarts-repo
         volumeMounts:
         - mountPath: /tmp
           name: tmpdir
-        sidecars:
-        - name: git-service
-          image: ${GIT_SERVICE_IMAGE}:${GIT_SERVICE_IMAGE_TAG}
-          ports:
-          - containerPort: 8001
-          env:
-          - name: GITHUB_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: quickstarts-git-service
-                key: GITHUB_TOKEN
-          - name: GITHUB_REPO_URL
-            value: ${GITHUB_REPO_URL}
-          - name: GITHUB_BASE_BRANCH
-            value: ${GITHUB_BASE_BRANCH}
-          - name: PR_REVIEWERS_TEAM
-            value: ${PR_REVIEWERS_TEAM}
-          - name: QUICKSTARTS_REPO_PATH
-            value: /var/quickstarts-repo
-          - name: QUICKSTARTS_DIR_PATH
-            value: ${QUICKSTARTS_DIR_PATH}
-          - name: PORT
-            value: "8001"
-          livenessProbe:
-            httpGet:
-              path: /test
-              port: 8001
-              scheme: HTTP
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 3
-            timeoutSeconds: 5
-          readinessProbe:
-            httpGet:
-              path: /test
-              port: 8001
-              scheme: HTTP
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 3
-            timeoutSeconds: 5
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 100m
-              memory: 128Mi
-          volumeMounts:
-          - mountPath: /var/quickstarts-repo
-            name: quickstarts-repo
+    - name: git-service
+      minReplicas: ${{GIT_SERVICE_MIN_REPLICAS}}
+      webServices:
+        private:
+          enabled: true
+      podSpec:
+        image: ${GIT_SERVICE_IMAGE}:${GIT_SERVICE_IMAGE_TAG}
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /test
+            port: 8001
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /test
+            port: 8001
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: quickstarts-git-service
+              key: GITHUB_TOKEN
+        - name: GITHUB_REPO_URL
+          value: ${GITHUB_REPO_URL}
+        - name: GITHUB_BASE_BRANCH
+          value: ${GITHUB_BASE_BRANCH}
+        - name: PR_REVIEWERS_TEAM
+          value: ${PR_REVIEWERS_TEAM}
+        - name: QUICKSTARTS_REPO_PATH
+          value: /var/quickstarts-repo
+        - name: QUICKSTARTS_DIR_PATH
+          value: ${QUICKSTARTS_DIR_PATH}
+        - name: PORT
+          value: "8001"
+        - name: CLOWDER_ENABLED
+          value: ${CLOWDER_ENABLED}
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        volumes:
+        - emptyDir: {}
+          name: quickstarts-repo
+        volumeMounts:
+        - mountPath: /var/quickstarts-repo
+          name: quickstarts-repo
 
 parameters:
 - name: LOG_LEVEL
@@ -145,6 +150,8 @@ parameters:
   name: ENV_NAME
   value: "quickstarts"
   required: true
+- name: GIT_SERVICE_MIN_REPLICAS
+  value: '1'
 - description: Git service image name
   name: GIT_SERVICE_IMAGE
   value: quay.io/redhat-services-prod/hcc-platex-services/quickstarts-git-service
