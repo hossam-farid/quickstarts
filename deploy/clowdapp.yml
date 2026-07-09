@@ -54,6 +54,11 @@ objects:
         env:
         - name: CLOWDER_ENABLED
           value: ${CLOWDER_ENABLED}
+        - name: PSK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: quickstarts-git-service
+              key: PSK_TOKEN
         resources:
           limits:
             cpu: ${CPU_LIMIT}
@@ -112,6 +117,11 @@ objects:
           value: "8001"
         - name: CLOWDER_ENABLED
           value: ${CLOWDER_ENABLED}
+        - name: PSK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: quickstarts-git-service
+              key: PSK_TOKEN
         resources:
           limits:
             cpu: 200m
