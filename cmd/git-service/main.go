@@ -7,7 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	gitconfig "github.com/RedHatInsights/quickstarts/pkg/git-service/config"
+	gitops "github.com/RedHatInsights/quickstarts/pkg/git-service/git"
+	ghclient "github.com/RedHatInsights/quickstarts/pkg/git-service/github"
 	githandlers "github.com/RedHatInsights/quickstarts/pkg/git-service/handlers"
+	pskmw "github.com/RedHatInsights/quickstarts/pkg/git-service/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -16,11 +20,20 @@ import (
 
 func main() {
 	godotenv.Load()
+	gitconfig.Init()
+	cfg := gitconfig.Get()
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
+	repoMgr, err := gitops.InitRepo(cfg.RepoURL, cfg.RepoPath, cfg.GitHubToken, cfg.BaseBranch)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to initialize repository")
 	}
+
+	ghClient, err := ghclient.NewClient(cfg.GitHubToken, cfg.RepoURL)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to initialize GitHub client")
+	}
+
+	handler := githandlers.NewHandler(repoMgr, ghClient, cfg.ReviewersTeam, cfg.QuickstartsDirPath)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -34,11 +47,12 @@ func main() {
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/submit-pr", githandlers.SubmitPR)
+		r.Use(pskmw.PSKAuth(cfg.PSKToken))
+		r.Post("/submit-pr", handler.SubmitPR)
 	})
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", port),
+		Addr:    fmt.Sprintf(":%s", cfg.Port),
 		Handler: r,
 	}
 
@@ -46,7 +60,7 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		logrus.WithField("port", port).Info("Starting quickstarts-git-service")
+		logrus.WithField("port", cfg.Port).Info("Starting quickstarts-git-service")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.WithError(err).Fatal("Server failed to start")
 		}
