@@ -28,6 +28,13 @@ type mockRepoManager struct {
 	writtenFiles []gitops.File
 	pushedBranch string
 	cleanedUp    string
+
+	directories    []string
+	listDirsErr    error
+	files          []string
+	listFilesErr   error
+	fileContents   map[string]string
+	readFileErr    error
 }
 
 func (m *mockRepoManager) PullLatest() error                            { return m.pullLatestErr }
@@ -42,6 +49,23 @@ func (m *mockRepoManager) WriteFiles(dir string, files []gitops.File) error {
 }
 func (m *mockRepoManager) CommitChanges(message, authorName, authorEmail string) (string, error) {
 	return m.commitSHA, m.commitErr
+}
+func (m *mockRepoManager) ListDirectories(basePath string) ([]string, error) {
+	return m.directories, m.listDirsErr
+}
+func (m *mockRepoManager) ListFiles(basePath string) ([]string, error) {
+	return m.files, m.listFilesErr
+}
+func (m *mockRepoManager) ReadFile(path string) (string, error) {
+	if m.readFileErr != nil {
+		return "", m.readFileErr
+	}
+	if m.fileContents != nil {
+		if content, ok := m.fileContents[path]; ok {
+			return content, nil
+		}
+	}
+	return "", fmt.Errorf("file not found: %s", path)
 }
 
 type mockGitHubClient struct {
@@ -294,6 +318,53 @@ func TestSubmitPR_PushError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Contains(t, rec.Body.String(), "failed to push branch")
 	assert.Equal(t, "quickstart/test-123", repo.cleanedUp)
+}
+
+func TestValidateRequest_TraversalInBranchName(t *testing.T) {
+	req := &SubmitPRRequest{
+		Files: []File{{Name: "f", Content: "c"}},
+		Metadata: PRMetadata{
+			BranchName:    "../../etc/passwd",
+			CommitMessage: "msg",
+			PRTitle:       "title",
+			PRBody:        "body",
+			UserEmail:     "test@test.com",
+		},
+	}
+	err := validateRequest(req)
+	assert.EqualError(t, err, "branchName contains invalid path segment")
+}
+
+func TestValidateRequest_TraversalInExistingPath(t *testing.T) {
+	req := &SubmitPRRequest{
+		Files: []File{{Name: "f", Content: "c"}},
+		Metadata: PRMetadata{
+			BranchName:    "test",
+			CommitMessage: "msg",
+			PRTitle:       "title",
+			PRBody:        "body",
+			UserEmail:     "test@test.com",
+			IsUpdate:      true,
+			ExistingPath:  "../../../etc/",
+		},
+	}
+	err := validateRequest(req)
+	assert.EqualError(t, err, "existingPath contains invalid path segment")
+}
+
+func TestValidateRequest_TraversalInFileName(t *testing.T) {
+	req := &SubmitPRRequest{
+		Files: []File{{Name: "../../etc/passwd", Content: "c"}},
+		Metadata: PRMetadata{
+			BranchName:    "test",
+			CommitMessage: "msg",
+			PRTitle:       "title",
+			PRBody:        "body",
+			UserEmail:     "test@test.com",
+		},
+	}
+	err := validateRequest(req)
+	assert.EqualError(t, err, "file name contains invalid path segment: ../../etc/passwd")
 }
 
 func TestSubmitPR_CreatePRError(t *testing.T) {

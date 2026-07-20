@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -27,6 +28,9 @@ type RepoOperations interface {
 	PushBranch(branch string) error
 	Cleanup(branch string) error
 	GetBaseBranch() string
+	ListDirectories(basePath string) ([]string, error)
+	ListFiles(basePath string) ([]string, error)
+	ReadFile(path string) (string, error)
 }
 
 type RepoManager struct {
@@ -135,13 +139,21 @@ func (m *RepoManager) CreateBranch(name string) error {
 }
 
 func (m *RepoManager) WriteFiles(dir string, files []File) error {
-	absDir := filepath.Join(m.RepoPath, dir)
+	repoRoot := filepath.Clean(m.RepoPath) + string(os.PathSeparator)
+	absDir := filepath.Clean(filepath.Join(m.RepoPath, dir))
+	if !strings.HasPrefix(absDir+string(os.PathSeparator), repoRoot) {
+		return fmt.Errorf("directory path escapes repository root: %s", dir)
+	}
+
 	if err := os.MkdirAll(absDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	for _, f := range files {
-		path := filepath.Join(absDir, f.Name)
+		path := filepath.Clean(filepath.Join(absDir, f.Name))
+		if !strings.HasPrefix(path, repoRoot) {
+			return fmt.Errorf("file path escapes repository root: %s", f.Name)
+		}
 		if err := os.WriteFile(path, []byte(f.Content), 0644); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", f.Name, err)
 		}
@@ -200,6 +212,14 @@ func (m *RepoManager) Cleanup(branch string) error {
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
+	if err := w.Reset(&git.ResetOptions{Mode: git.HardReset}); err != nil {
+		return fmt.Errorf("failed to reset worktree: %w", err)
+	}
+
+	if err := w.Clean(&git.CleanOptions{Dir: true}); err != nil {
+		return fmt.Errorf("failed to clean worktree: %w", err)
+	}
+
 	baseRef := plumbing.NewBranchReferenceName(m.BaseBranch)
 	if err := w.Checkout(&git.CheckoutOptions{Branch: baseRef}); err != nil {
 		return fmt.Errorf("failed to checkout %s: %w", m.BaseBranch, err)
@@ -215,6 +235,62 @@ func (m *RepoManager) Cleanup(branch string) error {
 
 func (m *RepoManager) GetBaseBranch() string {
 	return m.BaseBranch
+}
+
+func (m *RepoManager) ListDirectories(basePath string) ([]string, error) {
+	absPath := filepath.Clean(filepath.Join(m.RepoPath, basePath))
+	repoRoot := filepath.Clean(m.RepoPath) + string(os.PathSeparator)
+	if !strings.HasPrefix(absPath+string(os.PathSeparator), repoRoot) {
+		return nil, fmt.Errorf("path escapes repository root: %s", basePath)
+	}
+
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %s: %w", basePath, err)
+	}
+
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+	return dirs, nil
+}
+
+func (m *RepoManager) ListFiles(basePath string) ([]string, error) {
+	absPath := filepath.Clean(filepath.Join(m.RepoPath, basePath))
+	repoRoot := filepath.Clean(m.RepoPath) + string(os.PathSeparator)
+	if !strings.HasPrefix(absPath+string(os.PathSeparator), repoRoot) {
+		return nil, fmt.Errorf("path escapes repository root: %s", basePath)
+	}
+
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %s: %w", basePath, err)
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			files = append(files, entry.Name())
+		}
+	}
+	return files, nil
+}
+
+func (m *RepoManager) ReadFile(path string) (string, error) {
+	absPath := filepath.Clean(filepath.Join(m.RepoPath, path))
+	repoRoot := filepath.Clean(m.RepoPath) + string(os.PathSeparator)
+	if !strings.HasPrefix(absPath, repoRoot) {
+		return "", fmt.Errorf("path escapes repository root: %s", path)
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file %s: %w", path, err)
+	}
+	return string(data), nil
 }
 
 func (m *RepoManager) auth() *http.BasicAuth {

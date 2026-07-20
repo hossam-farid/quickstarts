@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	gitconfig "github.com/RedHatInsights/quickstarts/pkg/git-service/config"
 	gitops "github.com/RedHatInsights/quickstarts/pkg/git-service/git"
@@ -15,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
+	clowder "github.com/redhatinsights/app-common-go/pkg/api/v1"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,6 +25,13 @@ func main() {
 	godotenv.Load()
 	gitconfig.Init()
 	cfg := gitconfig.Get()
+
+	if cfg.PSKToken == "" {
+		if clowder.IsClowderEnabled() {
+			logrus.Fatal("PSK_TOKEN must be set in production (Clowder-enabled) environments")
+		}
+		logrus.Warn("PSK_TOKEN is not set; authentication is disabled (local development mode)")
+	}
 
 	repoMgr, err := gitops.InitRepo(cfg.RepoURL, cfg.RepoPath, cfg.GitHubToken, cfg.BaseBranch)
 	if err != nil {
@@ -49,11 +59,17 @@ func main() {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(pskmw.PSKAuth(cfg.PSKToken))
 		r.Post("/submit-pr", handler.SubmitPR)
+		r.Get("/list-quickstarts", handler.ListQuickstarts)
+		r.Get("/quickstart-content/{name}", handler.GetQuickstartContent)
 	})
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Port),
-		Handler: r,
+		Addr:              fmt.Sprintf(":%s", cfg.Port),
+		Handler:           r,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	done := make(chan os.Signal, 1)
@@ -68,4 +84,10 @@ func main() {
 
 	<-done
 	logrus.Info("Shutting down server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Error("Server shutdown error")
+	}
 }
