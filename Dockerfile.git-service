@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.2-1779886993 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.5-1784751462@sha256:5f5c97d7e6d917b8328321bcf2c9d5700de65b72d434ecdbbba6f35aaebaad40 AS builder
 WORKDIR $GOPATH/src/mypackage/myapp/
 COPY go.mod go.mod
 COPY go.sum go.sum
@@ -16,7 +16,7 @@ USER root
 RUN go get -d -v
 RUN CGO_ENABLED=0 go build -buildvcs=false -o /go/bin/git-service cmd/git-service/main.go
 
-FROM registry.access.redhat.com/ubi9-minimal:latest
+FROM registry.access.redhat.com/ubi9-minimal:latest@sha256:2e8edce823a48e51858f1fad3ff4cbf6875ce8a3f86b9eecf298bc2050c8652a
 
 RUN microdnf install -y git && microdnf clean all
 
