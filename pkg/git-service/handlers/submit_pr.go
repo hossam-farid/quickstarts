@@ -26,6 +26,7 @@ type PRMetadata struct {
 	UserEmail     string `json:"userEmail"`
 	IsUpdate      bool   `json:"isUpdate"`
 	ExistingPath  string `json:"existingPath"`
+	DirectoryName string `json:"directoryName"`
 }
 
 type SubmitPRRequest struct {
@@ -88,7 +89,11 @@ func (h *Handler) SubmitPR(w http.ResponseWriter, r *http.Request) {
 
 	dir := req.Metadata.ExistingPath
 	if !req.Metadata.IsUpdate {
-		dir = h.quickstartsDirPath + req.Metadata.BranchName + "/"
+		dirName := req.Metadata.DirectoryName
+		if dirName == "" {
+			dirName = req.Metadata.BranchName
+		}
+		dir = h.quickstartsDirPath + dirName + "/"
 	}
 
 	gitFiles := make([]gitops.File, len(req.Files))
@@ -119,6 +124,9 @@ func (h *Handler) SubmitPR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := req.Metadata.PRBody
+	if req.Metadata.UserEmail != "" {
+		body += fmt.Sprintf("\n\nSubmitted by: %s", req.Metadata.UserEmail)
+	}
 
 	prURL, prNumber, err := h.gitHubClient.CreatePullRequest(
 		r.Context(),
@@ -181,6 +189,9 @@ func validateRequest(req *SubmitPRRequest) error {
 	}
 	if m.ExistingPath != "" && containsTraversal(m.ExistingPath) {
 		return fmt.Errorf("existingPath contains invalid path segment")
+	}
+	if m.DirectoryName != "" && containsTraversal(m.DirectoryName) {
+		return fmt.Errorf("directoryName contains invalid path segment")
 	}
 	for _, f := range req.Files {
 		if containsTraversal(f.Name) {

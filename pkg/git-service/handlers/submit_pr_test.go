@@ -29,12 +29,12 @@ type mockRepoManager struct {
 	pushedBranch string
 	cleanedUp    string
 
-	directories    []string
-	listDirsErr    error
-	files          []string
-	listFilesErr   error
-	fileContents   map[string]string
-	readFileErr    error
+	directories  []string
+	listDirsErr  error
+	files        []string
+	listFilesErr error
+	fileContents map[string]string
+	readFileErr  error
 }
 
 func (m *mockRepoManager) PullLatest() error                            { return m.pullLatestErr }
@@ -114,7 +114,6 @@ func TestValidateRequest_MissingFiles(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 		},
 	}
 	err := validateRequest(req)
@@ -128,7 +127,6 @@ func TestValidateRequest_MissingBranchName(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 		},
 	}
 	err := validateRequest(req)
@@ -143,7 +141,6 @@ func TestValidateRequest_MissingExistingPathOnUpdate(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 			IsUpdate:      true,
 		},
 	}
@@ -159,7 +156,6 @@ func TestValidateRequest_Valid(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 		},
 	}
 	err := validateRequest(req)
@@ -215,10 +211,36 @@ func TestSubmitPR_Success(t *testing.T) {
 	assert.Equal(t, "quickstart/test-123", repo.cleanedUp)
 
 	assert.Equal(t, "Create test quickstart", gh.createdTitle)
-	assert.Equal(t, "Generated from creator", gh.createdBody)
+	assert.Contains(t, gh.createdBody, "Generated from creator")
+	assert.Contains(t, gh.createdBody, "Submitted by: user@example.com")
 	assert.Equal(t, "quickstart/test-123", gh.createdHead)
 	assert.Equal(t, "main", gh.createdBase)
 	assert.Equal(t, "team-reviewers", gh.assignedTeam)
+}
+
+func TestSubmitPR_DirectoryName(t *testing.T) {
+	repo := &mockRepoManager{commitSHA: "abc123def456abc123def456abc123def456abcd", baseBranch: "main"}
+	gh := &mockGitHubClient{createPRURL: "https://github.com/org/repo/pull/44", createPRNumber: 44}
+	handler := NewHandler(repo, gh, "", "/docs/quickstarts/")
+
+	body := `{
+		"files": [{"name": "metadata.yml", "content": "name: test"}],
+		"metadata": {
+			"branchName": "quickstart/my-quickstart-1720000000",
+			"commitMessage": "Add quickstart",
+			"prTitle": "New quickstart",
+			"prBody": "Adding new quickstart",
+			"directoryName": "my-quickstart"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/submit-pr", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+
+	handler.SubmitPR(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "/docs/quickstarts/my-quickstart/", repo.writtenDir)
 }
 
 func TestSubmitPR_UpdateMode(t *testing.T) {
@@ -328,7 +350,6 @@ func TestValidateRequest_TraversalInBranchName(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 		},
 	}
 	err := validateRequest(req)
@@ -343,7 +364,6 @@ func TestValidateRequest_TraversalInExistingPath(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 			IsUpdate:      true,
 			ExistingPath:  "../../../etc/",
 		},
@@ -360,7 +380,6 @@ func TestValidateRequest_TraversalInFileName(t *testing.T) {
 			CommitMessage: "msg",
 			PRTitle:       "title",
 			PRBody:        "body",
-			UserEmail:     "test@test.com",
 		},
 	}
 	err := validateRequest(req)

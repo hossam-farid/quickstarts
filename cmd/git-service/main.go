@@ -26,24 +26,11 @@ func main() {
 	gitconfig.Init()
 	cfg := gitconfig.Get()
 
-	if cfg.PSKToken == "" {
-		if clowder.IsClowderEnabled() {
-			logrus.Fatal("PSK_TOKEN must be set in production (Clowder-enabled) environments")
-		}
-		logrus.Warn("PSK_TOKEN is not set; authentication is disabled (local development mode)")
-	}
+	disabled := os.Getenv("GIT_SERVICE_ENABLED") != "true"
 
-	repoMgr, err := gitops.InitRepo(cfg.RepoURL, cfg.RepoPath, cfg.GitHubToken, cfg.BaseBranch)
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to initialize repository")
+	if disabled && !clowder.IsClowderEnabled() {
+		logrus.Warn("GIT_SERVICE_ENABLED is not set; assuming local development mode")
 	}
-
-	ghClient, err := ghclient.NewClient(cfg.GitHubToken, cfg.RepoURL)
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to initialize GitHub client")
-	}
-
-	handler := githandlers.NewHandler(repoMgr, ghClient, cfg.ReviewersTeam, cfg.QuickstartsDirPath)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -56,12 +43,30 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(pskmw.PSKAuth(cfg.PSKToken))
-		r.Post("/submit-pr", handler.SubmitPR)
-		r.Get("/list-quickstarts", handler.ListQuickstarts)
-		r.Get("/quickstart-content/{name}", handler.GetQuickstartContent)
-	})
+	if disabled {
+		logrus.Info("GIT_SERVICE_ENABLED is not set, running in health-only mode")
+	} else if cfg.PSKToken == "" || cfg.GitHubToken == "" {
+		logrus.Warn("GIT_SERVICE_ENABLED is true but secrets not available, running in health-only mode")
+	} else {
+		repoMgr, err := gitops.InitRepo(cfg.RepoURL, cfg.RepoPath, cfg.GitHubToken, cfg.BaseBranch)
+		if err != nil {
+			logrus.WithError(err).Fatal("Failed to initialize repository")
+		}
+
+		ghClient, err := ghclient.NewClient(cfg.GitHubToken, cfg.RepoURL)
+		if err != nil {
+			logrus.WithError(err).Fatal("Failed to initialize GitHub client")
+		}
+
+		handler := githandlers.NewHandler(repoMgr, ghClient, cfg.ReviewersTeam, cfg.QuickstartsDirPath)
+
+		r.Route("/api/v1", func(r chi.Router) {
+			r.Use(pskmw.PSKAuth(cfg.PSKToken))
+			r.Post("/submit-pr", handler.SubmitPR)
+			r.Get("/list-quickstarts", handler.ListQuickstarts)
+			r.Get("/quickstart-content/{name}", handler.GetQuickstartContent)
+		})
+	}
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),

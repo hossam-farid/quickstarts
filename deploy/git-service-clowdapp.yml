@@ -2,85 +2,22 @@
 apiVersion: v1
 kind: Template
 metadata:
-  name: quickstarts
+  name: quickstarts-git-service
 objects:
 - apiVersion: cloud.redhat.com/v1alpha1
   kind: ClowdApp
   metadata:
-    name: quickstarts
+    name: quickstarts-git-service
   spec:
     envName: ${ENV_NAME}
-    database:
-      name: quickstarts
-      version: 13
-    optionalDependencies:
-    - rbac
-    - quickstarts-git-service
     deployments:
-    - name: service
-      minReplicas: ${{MIN_REPLICAS}}
-      webServices:
-        public:
-          enabled: true
-          apiPath: quickstarts
-      podSpec:
-        image: ${IMAGE}:${IMAGE_TAG}
-        initContainers:
-        - name: run-migrations
-          command:
-            - bash
-            - -c
-            - quickstarts-migrate
-          inheritEnv: true
-        livenessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /test
-            port: 8000
-            scheme: HTTP
-          initialDelaySeconds: 35
-          periodSeconds: 5
-          successThreshold: 1
-          timeoutSeconds: 120
-        readinessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /test
-            port: 8000
-            scheme: HTTP
-          initialDelaySeconds: 35
-          periodSeconds: 5
-          successThreshold: 1
-          timeoutSeconds: 120
-        env:
-        - name: CLOWDER_ENABLED
-          value: ${CLOWDER_ENABLED}
-        - name: PSK_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: quickstarts-git-service
-              key: PSK_TOKEN
-              optional: true
-        resources:
-          limits:
-            cpu: ${CPU_LIMIT}
-            memory: ${MEMORY_LIMIT}
-          requests:
-            cpu: 200m
-            memory: 256Mi
-        volumes:
-        - emptyDir: {}
-          name: tmpdir
-        volumeMounts:
-        - mountPath: /tmp
-          name: tmpdir
     - name: git-service
       minReplicas: ${{GIT_SERVICE_MIN_REPLICAS}}
       webServices:
         private:
           enabled: true
       podSpec:
-        image: ${GIT_SERVICE_IMAGE}:${GIT_SERVICE_IMAGE_TAG}
+        image: ${IMAGE}:${IMAGE_TAG}
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -103,8 +40,9 @@ objects:
         - name: GITHUB_TOKEN
           valueFrom:
             secretKeyRef:
-              name: quickstarts-git-service
+              name: git-service-credentials
               key: GITHUB_TOKEN
+              optional: true
         - name: GITHUB_REPO_URL
           value: ${GITHUB_REPO_URL}
         - name: GITHUB_BASE_BRANCH
@@ -119,11 +57,14 @@ objects:
           value: "8001"
         - name: CLOWDER_ENABLED
           value: ${CLOWDER_ENABLED}
+        - name: GIT_SERVICE_ENABLED
+          value: ${GIT_SERVICE_ENABLED}
         - name: PSK_TOKEN
           valueFrom:
             secretKeyRef:
-              name: quickstarts-git-service
+              name: git-service-credentials
               key: PSK_TOKEN
+              optional: true
         resources:
           limits:
             cpu: 200m
@@ -139,37 +80,25 @@ objects:
           name: quickstarts-repo
 
 parameters:
-- name: LOG_LEVEL
-  value: Warn
-- description: Cpu limit of service
-  name: CPU_LIMIT
-  value: 500m
-- description: memory limit of service
-  name: MEMORY_LIMIT
-  value: 512Mi
-- name: MIN_REPLICAS
-  value: '1'
-- description: Image tag
-  name: IMAGE_TAG
-  required: true
-- description: Image name
-  name: IMAGE
-  value: quay.io/redhat-services-prod/hcc-platex-services/quickstarts
-- description: Determines Clowder deployment
-  name: CLOWDER_ENABLED
-  value: "false"
 - description: ClowdEnv Name
   name: ENV_NAME
   value: "quickstarts"
   required: true
 - name: GIT_SERVICE_MIN_REPLICAS
   value: '1'
-- description: Git service image name
-  name: GIT_SERVICE_IMAGE
+- description: Image name
+  name: IMAGE
   value: quay.io/redhat-services-prod/hcc-platex-services/quickstarts-git-service
-- description: Git service image tag
-  name: GIT_SERVICE_IMAGE_TAG
+- description: Image tag
+  name: IMAGE_TAG
+  value: 'latest'
   required: true
+- description: Determines Clowder deployment
+  name: CLOWDER_ENABLED
+  value: "false"
+- description: Enable git-service in this environment
+  name: GIT_SERVICE_ENABLED
+  value: "false"
 - description: GitHub repository URL for git-service
   name: GITHUB_REPO_URL
   value: https://github.com/RedHatInsights/quickstarts
